@@ -196,8 +196,19 @@ Register your own in `cmd/worker/main.go` via `job.Registry.Register("kind", exe
 Render reads `render.yaml` at the repo root and provisions everything in one click.
 
 1. Push this repo to GitHub.
-2. In the Render dashboard: **New → Blueprint** → pick the repo. Render previews the resources (Postgres, Redis, api web service, worker).
-3. Approve. Render builds both Docker images (multi-stage targets `api` and `worker`), provisions Postgres + Redis, and wires `DATABASE_URL` / `REDIS_URL` into both services automatically.
+2. In the Render dashboard: **New → Blueprint** → pick the repo. Render previews 3 resources: Postgres, Redis, and the api web service.
+3. Approve. Render builds the Docker image, provisions Postgres + Redis, and wires `DATABASE_URL` / `REDIS_URL` into the api automatically.
+
+### Two deployment shapes
+
+The blueprint defaults to **colocated mode** — one free web service runs both HTTP and the Asynq worker in the same process (`APP_RUN_WORKER_IN_PROCESS=true`). This keeps the deploy at **$0/month** but inherits the free tier's 15-minute sleep timer (jobs only execute while someone's poking the service).
+
+For **production scale-out**, edit `render.yaml`:
+- Drop `APP_RUN_WORKER_IN_PROCESS` from the api service.
+- Uncomment the `relay-worker` service block at the bottom.
+- (Optional) Bump `relay-api` from `free` to `starter` so the api never sleeps.
+
+That gives you two independent processes for ~$7/mo (separate background worker).
 4. The api boots with `APP_AUTO_MIGRATE=true`, so embedded migrations run before HTTP serving begins on first deploy. JWT secrets are auto-generated.
 
 The starter plans cost ~$7/svc/month for paid tiers; the free `redis` and `postgres` instances have storage caps that are fine for evaluation but not production.

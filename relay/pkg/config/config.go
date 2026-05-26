@@ -21,10 +21,11 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Env          string
-	Port         int
-	Secret       string
-	AutoMigrate  bool // when true, api runs embedded migrations at boot (PaaS deploys)
+	Env                 string
+	Port                int
+	Secret              string
+	AutoMigrate         bool // when true, api runs embedded migrations at boot (PaaS deploys)
+	RunWorkerInProcess  bool // when true, api also boots the Asynq worker in-process (free-tier deploys)
 }
 
 type DatabaseConfig struct {
@@ -106,10 +107,11 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Env:         v.GetString("app.env"),
-			Port:        v.GetInt("app.port"),
-			Secret:      v.GetString("app.secret"),
-			AutoMigrate: v.GetBool("app.auto_migrate"),
+			Env:                v.GetString("app.env"),
+			Port:               v.GetInt("app.port"),
+			Secret:             v.GetString("app.secret"),
+			AutoMigrate:        v.GetBool("app.auto_migrate"),
+			RunWorkerInProcess: v.GetBool("app.run_worker_in_process"),
 		},
 		Database: DatabaseConfig{
 			URL:      v.GetString("database.url"),

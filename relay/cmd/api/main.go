@@ -20,6 +20,7 @@ import (
 	"github.com/adithya/relay/internal/job"
 	"github.com/adithya/relay/internal/middleware"
 	"github.com/adithya/relay/internal/server"
+	"github.com/adithya/relay/internal/worker"
 	"github.com/adithya/relay/pkg/config"
 	"github.com/adithya/relay/pkg/logger"
 )
@@ -123,6 +124,27 @@ func main() {
 	})
 	jobHandler := job.NewHandler(jobSvc)
 
+	// Optional in-process worker. On free hosting (e.g. Render's free web
+	// tier) running a separate background-worker service costs $7/mo, so
+	// APP_RUN_WORKER_IN_PROCESS=true lets one process do both. Production
+	// scale-out runs cmd/worker as its own service.
+	var inProcessWorker *worker.Worker
+	if cfg.App.RunWorkerInProcess {
+		inProcessWorker = worker.New(worker.Config{
+			RedisAddr:     redisAddr,
+			RedisPassword: redisPassword,
+			Concurrency:   cfg.Asynq.Concurrency,
+			Service:       jobSvc,
+			Logger:        log,
+		})
+		go func() {
+			if err := inProcessWorker.Run(); err != nil {
+				log.Error("in-process worker stopped", "error", err)
+			}
+		}()
+		log.Info("in-process worker started", "concurrency", cfg.Asynq.Concurrency)
+	}
+
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -206,6 +228,11 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("forced shutdown", "error", err)
 		os.Exit(1)
+	}
+
+	if inProcessWorker != nil {
+		inProcessWorker.Shutdown()
+		log.Info("in-process worker stopped")
 	}
 
 	log.Info("server stopped cleanly")
