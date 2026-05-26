@@ -32,7 +32,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerTarget: api      # multi-stage: pick the api stage
-    plan: starter
+    plan: free             # sleeps after 15min idle; bump to starter for always-on
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -74,7 +74,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerTarget: worker
-    plan: starter
+    plan: starter          # workers have no free tier on Render — $7/mo minimum
     autoDeploy: true
     envVars:
       - key: APP_ENV
