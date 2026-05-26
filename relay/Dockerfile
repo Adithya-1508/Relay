@@ -1,44 +1,47 @@
 ################################################################################
-# Single Dockerfile that builds both `api` and `worker` binaries. Pick the
-# image target with --target api / --target worker. Final stages are based on
-# distroless/static-debian12, so the runtime image carries no shell, no libc,
-# no package manager — just the static Go binary, /etc/passwd for the nonroot
-# user, and ca-certificates for outbound HTTPS.
+# Single Dockerfile that produces one image containing BOTH the api and worker
+# binaries plus the static dashboard. Each service picks which binary to run
+# at start time via Docker CMD override:
+#   docker compose → worker has `command: ["/app/worker"]`
+#   Render        → worker has `dockerCommand: /app/worker`
+#
+# Why one image instead of multi-target?
+#   - Render Blueprint schema doesn't support `dockerTarget`, only
+#     `dockerCommand`. `dockerCommand` overrides CMD, not ENTRYPOINT — so
+#     we leave ENTRYPOINT unset and use CMD only.
+#   - Combined image is ~30MB (two static Go binaries + web assets). Trivial.
 ################################################################################
 
-# ---------- 1. shared build base ----------------------------------------------
+# ---------- 1. build base -----------------------------------------------------
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 
-# Copy go.mod/go.sum first so dependency download caches across source-only
-# changes.
+# Cache go modules across source-only changes.
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-# Compile both binaries statically so the distroless images need no libc.
-# -trimpath strips local paths from the binary; -ldflags '-s -w' drops the
-# DWARF + symbol table for a smaller image.
+# Build both binaries statically so the distroless final stage needs no libc.
+# -trimpath strips local paths; -s -w drops DWARF + symbol tables.
 ENV CGO_ENABLED=0 GOOS=linux
 
 RUN go build -trimpath -ldflags="-s -w" -o /out/api    ./cmd/api && \
     go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
 
-# ---------- 2. api image -------------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot AS api
+# ---------- 2. runtime image --------------------------------------------------
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-COPY --from=build /out/api /app/api
+COPY --from=build /out/api    /app/api
+COPY --from=build /out/worker /app/worker
 # Dashboard assets — served by Gin via r.StaticFile("/", "./web/index.html").
-COPY --from=build /src/web /app/web
+COPY --from=build /src/web    /app/web
+
 USER nonroot:nonroot
 EXPOSE 8081
-ENTRYPOINT ["/app/api"]
 
-# ---------- 3. worker image ----------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot AS worker
-WORKDIR /app
-COPY --from=build /out/worker /app/worker
-USER nonroot:nonroot
-ENTRYPOINT ["/app/worker"]
+# Default to api. Override per service:
+#   compose worker: `command: ["/app/worker"]`
+#   render worker:  `dockerCommand: /app/worker`
+CMD ["/app/api"]

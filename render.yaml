@@ -31,7 +31,7 @@ services:
     rootDir: relay
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerTarget: api      # multi-stage: pick the api stage
+    # Default CMD in the Dockerfile is /app/api, so no override needed.
     plan: free             # sleeps after 15min idle; bump to starter for always-on
     healthCheckPath: /healthz
     autoDeploy: true
@@ -73,7 +73,7 @@ services:
     rootDir: relay
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerTarget: worker
+    dockerCommand: /app/worker   # override the api CMD with the worker binary
     plan: starter          # workers have no free tier on Render — $7/mo minimum
     autoDeploy: true
     envVars:

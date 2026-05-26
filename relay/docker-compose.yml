@@ -50,7 +50,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: api
     container_name: relay_api
     environment:
       APP_ENV: development
@@ -77,8 +76,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: worker
     container_name: relay_worker
+    command: ["/app/worker"]
     environment:
       APP_ENV: development
       DATABASE_URL: postgres://relay:relay_secret@postgres:5432/relay_db?sslmode=disable
