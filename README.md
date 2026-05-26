@@ -170,23 +170,25 @@ Register your own in `cmd/worker/main.go` via `job.Registry.Register("kind", exe
 ## Layout
 
 ```
-relay/
-├── cmd/
-│   ├── api/                HTTP server (Gin), auto-migration boot mode, pprof
-│   └── worker/             Asynq consumer with built-in retry backoff + jitter
-├── internal/
-│   ├── auth/               4-layer (model/dto/repository/service/handler) + JWT
-│   ├── job/                4-layer + executor registry + Asynq enqueuer
-│   ├── hub/                Redis pub/sub subscriber + bounded fan-out + WS handler
-│   ├── middleware/         request id, auth (with WS query-token variant), rbac, rate limit (Lua), access log
-│   └── server/             pgxpool (primary + optional read replica), redis client, OTel, embedded-migration runner
-├── pkg/{config,logger,response}/
-├── migrations/             SQL files + embed.FS go file (golang-migrate compatible)
-├── scripts/k6/load.js      k6 load test
-├── web/                    static dashboard served at /
-├── Dockerfile              multi-stage; targets `api` and `worker`
-├── docker-compose.yml      postgres + redis + asynqmon + migrate + api + worker
-└── render.yaml             Render blueprint (Postgres + Redis + api + worker)
+.
+├── relay/                   # Go module
+│   ├── cmd/
+│   │   ├── api/             # HTTP server (Gin), auto-migration boot mode, pprof
+│   │   └── worker/          # Asynq consumer with built-in retry backoff + jitter
+│   ├── internal/
+│   │   ├── auth/            # 4-layer (model/dto/repository/service/handler) + JWT
+│   │   ├── job/             # 4-layer + executor registry + Asynq enqueuer
+│   │   ├── hub/             # Redis pub/sub subscriber + bounded fan-out + WS handler
+│   │   ├── middleware/      # request id, auth (incl. WS query-token variant), rbac, rate limit (Lua), access log
+│   │   └── server/          # pgxpool (primary + optional read replica), redis client, OTel, embedded-migration runner
+│   ├── pkg/{config,logger,response}/
+│   ├── migrations/          # SQL files + embed.FS go file (golang-migrate compatible)
+│   ├── scripts/k6/load.js   # k6 load test
+│   ├── web/                 # static dashboard served at /
+│   ├── Dockerfile           # multi-stage; targets `api` and `worker`
+│   └── docker-compose.yml   # postgres + redis + asynqmon + migrate + api + worker
+├── render.yaml              # Render Blueprint (Postgres + Redis + api + worker)
+└── .github/workflows/ci.yml # vet + build + test -race on push
 ```
 
 ## Deploy to Render
