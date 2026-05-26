@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Relay — minimal dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --fg: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --grey: #6e7681;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg); color: var(--fg);
+    }
+    header {
+      padding: 12px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    header h1 { font-size: 16px; margin: 0; letter-spacing: 1px; }
+    main { display: grid; grid-template-columns: 360px 1fr; gap: 20px; padding: 20px; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+    .panel h2 { font-size: 13px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, button, select, textarea {
+      width: 100%; padding: 8px 10px; margin-bottom: 8px;
+      background: #0d1117; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--fg); font: inherit;
+    }
+    button {
+      cursor: pointer; background: var(--accent); border: 1px solid var(--accent); color: #0d1117;
+      font-weight: 600;
+    }
+    button.secondary { background: transparent; color: var(--accent); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    .badge {
+      display: inline-block; padding: 2px 6px; border-radius: 3px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-blocked   { background: rgba(110, 118, 129, .2); color: var(--grey); }
+    .badge-pending   { background: rgba(210, 153, 34, .2); color: var(--yellow); }
+    .badge-running   { background: rgba(88, 166, 255, .2); color: var(--accent); }
+    .badge-succeeded { background: rgba(63, 185, 80, .2); color: var(--green); }
+    .badge-failed    { background: rgba(248, 81, 73, .2); color: var(--red); }
+    .badge-dead      { background: rgba(248, 81, 73, .35); color: var(--red); }
+    .badge-cancelled { background: rgba(110, 118, 129, .25); color: var(--grey); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: normal; }
+    code { font-family: inherit; color: var(--muted); }
+    .ws-status { font-size: 11px; color: var(--muted); }
+    .feed { max-height: 240px; overflow-y: auto; font-size: 12px; }
+    .feed div { padding: 4px 0; border-bottom: 1px solid var(--border); }
+    .feed time { color: var(--muted); margin-right: 6px; }
+    .hidden { display: none; }
+    .error { color: var(--red); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RELAY</h1>
+    <span id="ws-status" class="ws-status">disconnected</span>
+  </header>
+
+  <!-- Login / register -->
+  <main id="auth-view">
+    <section class="panel">
+      <h2>Sign in</h2>
+      <label>email</label>
+      <input id="login-email" type="email" value="demo@example.com" />
+      <label>password</label>
+      <input id="login-password" type="password" value="demo-password-1234" />
+      <button id="login-btn">login</button>
+      <button class="secondary" id="show-register">need an account?</button>
+      <div id="login-error" class="error"></div>
+    </section>
+
+    <section class="panel hidden" id="register-panel">
+      <h2>Create workspace</h2>
+      <label>email</label>
+      <input id="reg-email" type="email" value="demo@example.com" />
+      <label>password (≥ 8 chars)</label>
+      <input id="reg-password" type="password" value="demo-password-1234" />
+      <label>workspace name</label>
+      <input id="reg-ws-name" value="Demo Workspace" />
+      <label>workspace slug</label>
+      <input id="reg-ws-slug" value="demo" />
+      <button id="register-btn">create workspace</button>
+      <div id="register-error" class="error"></div>
+    </section>
+  </main>
+
+  <!-- Authenticated dashboard -->
+  <main id="dashboard-view" class="hidden">
+    <section class="panel">
+      <h2>Submit a job</h2>
+      <label>pipeline slug</label>
+      <div class="row">
+        <input id="pipeline-slug" value="default" />
+        <button id="ensure-pipeline" style="flex: 0 0 auto;">create</button>
+      </div>
+      <label>kind</label>
+      <select id="job-kind">
+        <option value="noop">noop</option>
+        <option value="delay">delay</option>
+        <option value="http">http</option>
+      </select>
+      <label>payload (JSON)</label>
+      <textarea id="job-payload" rows="3">{}</textarea>
+      <button id="enqueue-btn">enqueue</button>
+      <div id="enqueue-error" class="error"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Realtime feed <button class="secondary" id="refresh-jobs" style="float: right; width: auto;">refresh list</button></h2>
+      <div id="feed" class="feed"></div>
+      <h2 style="margin-top: 16px;">Jobs</h2>
+      <table id="jobs-table">
+        <thead><tr>
+          <th>id</th><th>kind</th><th>state</th><th>attempts</th><th>updated</th>
+        </tr></thead>
+        <tbody id="jobs-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+  const API = location.origin;
+  let TOKEN = null;
+  let WS = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  // --- auth ---
+  $('show-register').onclick = () => $('register-panel').classList.toggle('hidden');
+
+  $('login-btn').onclick = async () => {
+    $('login-error').textContent = '';
+    try {
+      const res = await fetch(`${API}/v1/auth/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: $('login-email').value, password: $('login-password').value }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || 'login failed');
+      TOKEN = j.data.tokens.access_token;
+      enterDashboard();
+    } catch (e) { $('login-error').textContent = e.message; }
+  };
+
+  $('register-btn').onclick = async () => {
+    $('register-error').textContent = '';
+    try {
+      const res = await fetch(`${API}/v1/auth/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: $('reg-email').value,
+          password: $('reg-password').value,
+          workspace_name: $('reg-ws-name').value,
+          workspace_slug: $('reg-ws-slug').value,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || 'register failed');
+      TOKEN = j.data.tokens.access_token;
+      enterDashboard();
+    } catch (e) { $('register-error').textContent = e.message; }
+  };
+
+  function enterDashboard() {
+    $('auth-view').classList.add('hidden');
+    $('dashboard-view').classList.remove('hidden');
+    refreshJobs();
+    connectWS();
+  }
+
+  // --- pipeline + jobs ---
+  $('ensure-pipeline').onclick = async () => {
+    const slug = $('pipeline-slug').value;
+    const res = await fetch(`${API}/v1/pipelines`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+      body: JSON.stringify({ name: slug, slug }),
+    });
+    if (!res.ok && res.status !== 409) {
+      const j = await res.json();
+      $('enqueue-error').textContent = j.error?.message || 'create failed';
+    } else {
+      $('enqueue-error').textContent = '';
+    }
+  };
+
+  $('enqueue-btn').onclick = async () => {
+    $('enqueue-error').textContent = '';
+    let payload;
+    try { payload = JSON.parse($('job-payload').value || '{}'); }
+    catch (e) { return $('enqueue-error').textContent = 'invalid JSON payload'; }
+    const res = await fetch(`${API}/v1/pipelines/${encodeURIComponent($('pipeline-slug').value)}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+      body: JSON.stringify({ kind: $('job-kind').value, payload }),
+    });
+    const j = await res.json();
+    if (!res.ok) return $('enqueue-error').textContent = j.error?.message || 'enqueue failed';
+    refreshJobs();
+  };
+
+  $('refresh-jobs').onclick = refreshJobs;
+
+  async function refreshJobs() {
+    const res = await fetch(`${API}/v1/jobs?limit=25`, {
+      headers: { 'Authorization': `Bearer ${TOKEN}` },
+    });
+    if (!res.ok) return;
+    const j = await res.json();
+    const tbody = $('jobs-tbody');
+    tbody.innerHTML = '';
+    for (const job of j.data.jobs) {
+      tbody.appendChild(renderJobRow(job));
+    }
+  }
+
+  function renderJobRow(job) {
+    const tr = document.createElement('tr');
+    tr.id = `job-${job.id}`;
+    tr.innerHTML = `
+      <td><code>${job.id.slice(0, 8)}</code></td>
+      <td>${job.kind}</td>
+      <td><span class="badge badge-${job.state}">${job.state}</span></td>
+      <td>${job.attempts}/${job.max_attempts}</td>
+      <td>${new Date(job.updated_at).toLocaleTimeString()}</td>
+    `;
+    return tr;
+  }
+
+  // --- websocket ---
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${proto}://${location.host}/v1/ws/jobs`;
+    // WebSocket browsers don't support custom Authorization header. Pass token
+    // via query string; production should use a short-lived ticket exchange.
+    WS = new WebSocket(`${url}?token=${encodeURIComponent(TOKEN)}`);
+    WS.onopen = () => $('ws-status').textContent = 'live';
+    WS.onclose = () => { $('ws-status').textContent = 'disconnected'; setTimeout(connectWS, 2000); };
+    WS.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        appendFeed(msg);
+        if (msg.data) updateJobInline(msg.data);
+      } catch (e) { /* ignore */ }
+    };
+  }
+
+  function appendFeed(msg) {
+    const feed = $('feed');
+    const div = document.createElement('div');
+    const ts = new Date().toLocaleTimeString();
+    const data = msg.data || {};
+    div.innerHTML = `<time>${ts}</time><strong>${msg.type}</strong> ` +
+                    `<code>${(data.id || '').slice(0, 8)}</code> ` +
+                    `<span class="badge badge-${data.state || ''}">${data.state || ''}</span>`;
+    feed.prepend(div);
+    while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+  }
+
+  function updateJobInline(job) {
+    if (!job.id) return;
+    const existing = $('job-' + job.id);
+    const fresh = renderJobRow(job);
+    if (existing) existing.replaceWith(fresh);
+    else $('jobs-tbody').prepend(fresh);
+  }
+  </script>
+</body>
+</html>

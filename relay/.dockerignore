@@ -1,0 +1,11 @@
+.git
+.github
+bin/
+*.exe
+*.test
+*.out
+.idea/
+.vscode/
+.DS_Store
+.env
+node_modules/

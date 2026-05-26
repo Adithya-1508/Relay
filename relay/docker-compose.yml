@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: relay_postgres
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay_secret
+      POSTGRES_DB: relay_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: relay_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Oneshot service that runs golang-migrate up against postgres. After it
+  # exits, downstream services (api / worker) start. Re-run manually with
+  # `docker compose run --rm migrate`.
+  migrate:
+    image: migrate/migrate:v4.18.1
+    container_name: relay_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://relay:relay_secret@postgres:5432/relay_db?sslmode=disable"
+      - "up"
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: relay_api
+    environment:
+      APP_ENV: development
+      APP_PORT: "8081"
+      APP_SECRET: dev-secret-change-in-production
+      DATABASE_URL: postgres://relay:relay_secret@postgres:5432/relay_db?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_ACCESS_SECRET: dev-access-secret-min-32-chars-long
+      JWT_REFRESH_SECRET: dev-refresh-secret-min-32-chars-long
+      JWT_ACCESS_EXPIRY: 15m
+      JWT_REFRESH_EXPIRY: 168h
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: relay_worker
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgres://relay:relay_secret@postgres:5432/relay_db?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_ACCESS_SECRET: dev-access-secret-min-32-chars-long
+      JWT_REFRESH_SECRET: dev-refresh-secret-min-32-chars-long
+      ASYNQ_CONCURRENCY: "10"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  asynqmon:
+    image: hibiken/asynqmon
+    container_name: relay_asynqmon
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

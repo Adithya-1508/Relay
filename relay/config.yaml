@@ -1,0 +1,21 @@
+app:
+  env: development
+  port: 8081
+
+database:
+  max_conns: 25
+  min_conns: 5
+
+redis:
+  addr: localhost:6379
+
+jwt:
+  access_expiry: 15m
+  refresh_expiry: 168h
+
+asynq:
+  concurrency: 10
+
+otel:
+  enabled: false
+  endpoint: localhost:4317

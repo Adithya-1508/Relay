@@ -21,18 +21,21 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Env    string
-	Port   int
-	Secret string
+	Env          string
+	Port         int
+	Secret       string
+	AutoMigrate  bool // when true, api runs embedded migrations at boot (PaaS deploys)
 }
 
 type DatabaseConfig struct {
 	URL      string
+	ReadURL  string // optional read replica DSN; empty = use primary for reads
 	MaxConns int32
 	MinConns int32
 }
 
 type RedisConfig struct {
+	URL      string // optional full URL (redis://[user]:[password]@host:port[/db]); preferred when set
 	Addr     string
 	Password string
 }
@@ -69,6 +72,11 @@ func Load() (*Config, error) {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
+	// Render (and most PaaS) inject the listen port as PORT. Honour it as a
+	// fallback for app.port so the same image runs on local docker compose
+	// (APP_PORT=8081) and on Render ($PORT) with no code change.
+	_ = v.BindEnv("app.port", "APP_PORT", "PORT")
+
 	// Read config file — not fatal if missing, env vars are enough.
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -98,16 +106,19 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Env:    v.GetString("app.env"),
-			Port:   v.GetInt("app.port"),
-			Secret: v.GetString("app.secret"),
+			Env:         v.GetString("app.env"),
+			Port:        v.GetInt("app.port"),
+			Secret:      v.GetString("app.secret"),
+			AutoMigrate: v.GetBool("app.auto_migrate"),
 		},
 		Database: DatabaseConfig{
 			URL:      v.GetString("database.url"),
+			ReadURL:  v.GetString("database.read_url"),
 			MaxConns: int32(v.GetInt("database.max_conns")),
 			MinConns: int32(v.GetInt("database.min_conns")),
 		},
 		Redis: RedisConfig{
+			URL:      v.GetString("redis.url"),
 			Addr:     v.GetString("redis.addr"),
 			Password: v.GetString("redis.password"),
 		},
@@ -140,8 +151,8 @@ func (c *Config) validate() error {
 	if c.Database.URL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
 	}
-	if c.Redis.Addr == "" {
-		return fmt.Errorf("REDIS_ADDR is required")
+	if c.Redis.URL == "" && c.Redis.Addr == "" {
+		return fmt.Errorf("REDIS_URL or REDIS_ADDR is required")
 	}
 	if c.JWT.AccessSecret == "" {
 		return fmt.Errorf("JWT_ACCESS_SECRET is required")

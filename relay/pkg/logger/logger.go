@@ -6,43 +6,37 @@ import (
 	"os"
 )
 
-//ContextKey is unexported - prevents other packages from accidentally using the
-// same key in context, which would silently overwrite the logger.
+// contextKey is unexported so other packages cannot accidentally use the same
+// key when storing values in a context.Context, which would silently overwrite
+// the logger.
+type contextKey struct{}
 
-
-type ContextKey struct {}
-
-
+// New returns a slog.Logger configured for the given environment.
+// Production emits JSON; everything else emits human-friendly text.
 func New(env string) *slog.Logger {
-	var handler slog.Handler
-
 	opts := &slog.HandlerOptions{
-		Level : slog.LevelDebug,
+		Level:     slog.LevelDebug,
 		AddSource: true,
 	}
 
-	if env == "production"{
+	var handler slog.Handler
+	if env == "production" {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	} else {
-		handler =  slog.NewTextHandler(os.Stdout, opts)
+		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
 	return slog.New(handler)
 }
 
-
-// WithContext stores the logger in a context so handlers can retrieve it without 
-// threading the logger every function signature
-
+// WithContext stores the logger in ctx so handlers can retrieve it via
+// FromContext without threading the logger through every function signature.
 func WithContext(ctx context.Context, l *slog.Logger) context.Context {
-	return context.WithValue(ctx, ContextKey{}, l)
+	return context.WithValue(ctx, contextKey{}, l)
 }
 
-
-//FromContext retrieves the logger from a context.
-// If no logger is found, it returns a shared default logger.
-
+// FromContext returns the logger stored in ctx, or slog.Default() if none.
 func FromContext(ctx context.Context) *slog.Logger {
-	if l, ok := ctx.Value(ContextKey{}).(*slog.Logger); ok {
+	if l, ok := ctx.Value(contextKey{}).(*slog.Logger); ok {
 		return l
 	}
 	return slog.Default()
